@@ -1,13 +1,38 @@
 package com.ntust.camp.teleport;
 
 import org.bukkit.Location;
-import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
+/**
+ * Handles the /tp2 command.
+ *
+ * Usage: /tp2 <x> <z>
+ *
+ * VULN 1 — Y-axis bypass via comma-separated coordinates:
+ *   The plugin splits arguments on both spaces AND commas (to support
+ *   "100,200" as an alternative to "100 200").  If a player types
+ *   "/tp2 100,64,200", the split produces THREE values, and the middle
+ *   one is interpreted as the Y coordinate — enabling 3D teleport.
+ *
+ * VULN 2 — Integer overflow in distance check:
+ *   The squared-distance calculation uses int arithmetic:
+ *     int dx = targetX - playerX;
+ *     int dz = targetZ - playerZ;
+ *     int distSq = dx*dx + dz*dz;
+ *   When dx or dz is large (~65536), dx² overflows the 32-bit signed
+ *   int and wraps around.  This can produce a small (or negative) value
+ *   that passes the max-distance check while the actual teleport uses
+ *   the true (large) double-precision coordinates.
+ *
+ * Discovery hints:
+ *   - Vuln 1: try using commas (many games use "x,y,z" format)
+ *   - Vuln 2: rejected teleports show "Distance: NaN blocks" when
+ *     overflow produces a negative distSq (Math.sqrt of negative = NaN)
+ */
 public class TeleportCommand implements CommandExecutor {
 
     private final JavaPlugin plugin;
@@ -30,52 +55,75 @@ public class TeleportCommand implements CommandExecutor {
             return true;
         }
 
-        if (args.length < 2 || args.length > 3) {
-            player.sendMessage("§eUsage: /tp2 <x> <z> §7— Teleport to X,Z (flat plane, max " + maxDistance + " blocks)");
+        if (args.length == 0) {
+            player.sendMessage("§6===== Teleport =====");
+            player.sendMessage("§e/tp2 <x> <z>");
+            player.sendMessage("§7  Teleports you to X,Z (same Y level)");
+            player.sendMessage("§7  Max distance: §e" + maxDistance + "§7 blocks");
+            player.sendMessage("§7  Coordinates can be space-separated or comma-separated.");
+            return true;
+        }
+
+        // ── Flexible coordinate parsing ──
+        // Join all args and split on spaces OR commas OR semicolons.
+        // This allows: "100 200", "100,200", "100,64,200", etc.
+        String joined = String.join(" ", args);
+        String[] parts = joined.split("[\\s,;]+");
+
+        if (parts.length < 2 || parts.length > 3) {
+            player.sendMessage("§cInvalid coordinates. Use: /tp2 <x> <z>  or  /tp2 <x>,<z>");
             return true;
         }
 
         try {
-            int targetX = Integer.parseInt(args[0]);
-            int targetZ = Integer.parseInt(args[1]);
+            double targetX = Double.parseDouble(parts[0]);
+            double targetZ;
+            double targetY;
+
+            if (parts.length == 3) {
+                // ── VULN 1: 3 values → middle one becomes Y ──
+                // The comma-split was intended only for "x,z" pairs,
+                // but "x,y,z" also works because of the generic split.
+                targetY = Double.parseDouble(parts[1]);
+                targetZ = Double.parseDouble(parts[2]);
+            } else {
+                targetY = player.getLocation().getY();
+                targetZ = Double.parseDouble(parts[1]);
+            }
 
             Location playerLoc = player.getLocation();
             int playerX = playerLoc.getBlockX();
             int playerZ = playerLoc.getBlockZ();
 
             // ── VULN 2: Integer overflow in distance check ──
-            // Using int for dx² + dz² can overflow when dx or dz are large.
-            // Example: dx = 65536 → dx² = 4,294,967,296 → wraps to 0 in int
-            // This bypasses the check while the actual teleport uses the true coords.
-            int dx = targetX - playerX;
-            int dz = targetZ - playerZ;
-            int distSq = dx * dx + dz * dz;   // <-- INTEGER OVERFLOW HERE
+            int dx = (int) targetX - playerX;
+            int dz = (int) targetZ - playerZ;
+            int distSq = dx * dx + dz * dz;   // ← OVERFLOW HERE
 
             int maxDistSq = maxDistance * maxDistance;
+
             if (distSq < 0 || distSq > maxDistSq) {
-                player.sendMessage("§cToo far! Max teleport distance is " + maxDistance + " blocks. "
-                        + "You are trying to go §e" + (int) Math.sqrt(Math.abs(distSq)) + "§c blocks away.");
+                // Show the calculated distance — when overflow produces
+                // a negative distSq, Math.sqrt returns NaN, which is a
+                // big clue that the math is broken.
+                double shownDist = Math.sqrt(Math.abs((double) dx * dx + (double) dz * dz));
+                player.sendMessage("§cToo far! Distance: §e"
+                        + String.format("%.1f", shownDist)
+                        + "§c blocks (max " + maxDistance + ")");
                 return true;
             }
 
-            // ── VULN 1: Hidden 3D teleport (Y-axis bypass) ──
-            // If 3 arguments are provided, the third one is used as Y.
-            // This was a debug feature for testing parkour maps — accidentally left in.
-            double targetY = playerLoc.getY();
-            if (args.length == 3) {
-                targetY = Double.parseDouble(args[2]);
-                player.sendMessage("§7[Debug] 3D teleport mode — using Y=" + targetY);
-            }
-
-            Location dest = new Location(player.getWorld(), targetX + 0.5, targetY, targetZ + 0.5,
+            Location dest = new Location(player.getWorld(),
+                    targetX + 0.5, targetY, targetZ + 0.5,
                     playerLoc.getYaw(), playerLoc.getPitch());
 
             player.teleport(dest);
-            player.sendMessage("§aTeleported to §e" + targetX + " " + targetZ
-                    + (args.length == 3 ? " " + (int) targetY : "") + "§a!");
+            player.sendMessage("§aTeleported to §e"
+                    + (int) targetX + " " + (int) targetZ
+                    + (parts.length == 3 ? " " + (int) targetY : "") + "§a!");
 
         } catch (NumberFormatException e) {
-            player.sendMessage("§cInvalid coordinates. Use numbers like: /tp2 100 200");
+            player.sendMessage("§cInvalid number format. Use numbers like: /tp2 100 200");
         }
 
         return true;

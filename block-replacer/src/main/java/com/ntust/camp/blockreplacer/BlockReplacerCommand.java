@@ -14,10 +14,33 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Handles the /br command.
+ *
+ * Usage: /br <block> [y] [output]
+ *
+ * VULN 1 — Y-axis bypass:
+ *   The optional [y] argument overrides the configured target Y with no
+ *   bounds check.  A player can replace blocks at ANY height.
+ *
+ * VULN 2 — Output block bypass:
+ *   The optional [output] argument overrides the configured output block
+ *   (default BARRIER) with no whitelist.  A player can set it to AIR to
+ *   make blocks vanish, or to DIRT to make formerly-impenetrable walls
+ *   breakable with a wooden pickaxe.
+ *
+ * Discovery: running /br with no arguments shows the full usage line
+ * including the optional [y] and [output] parameters.
+ */
 public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
 
     private final BlockReplacerPlugin plugin;
     private final BlockReplacerConfig config;
+
+    private static final List<String> COMMON_BLOCKS = Arrays.asList(
+        "stone", "cobblestone", "obsidian", "dirt", "grass_block",
+        "sand", "gravel", "netherrack", "end_stone", "barrier", "air"
+    );
 
     public BlockReplacerCommand(BlockReplacerPlugin plugin, BlockReplacerConfig config) {
         this.plugin = plugin;
@@ -36,118 +59,51 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // ── Show help (including HIDDEN optional args!) ──
         if (args.length == 0) {
             showHelp(player);
             return true;
         }
 
-        String sub = args[0].toLowerCase();
+        // ═══════════════════════════════════════════════════════════
+        // MAIN COMMAND: /br <block> [y] [output]
+        // ═══════════════════════════════════════════════════════════
 
-        // ── Hidden debug commands (NO permission check!) ──
-        // These were used during development and accidentally left in production.
-
-        // VULN 1: Hidden /br sety <y> — allows changing target Y to any value
-        if (sub.equals("sety")) {
-            if (args.length < 2) {
-                player.sendMessage("§cUsage: /br sety <y>");
-                return true;
-            }
-            try {
-                int y = Integer.parseInt(args[1]);
-                config.setPlayerTargetY(player, y);
-                // Also update the "default" so it persists for this player
-                plugin.getLogger().info(player.getName() + " changed target Y to " + y);
-            } catch (NumberFormatException e) {
-                player.sendMessage("§cInvalid Y value: " + args[1]);
-            }
-            return true;
-        }
-
-        // VULN 2: Hidden /br output <material> — allows changing output block to anything
-        if (sub.equals("output")) {
-            if (args.length < 2) {
-                player.sendMessage("§cUsage: /br output <material>");
-                return true;
-            }
-            try {
-                Material mat = Material.matchMaterial(args[1].toUpperCase());
-                if (mat == null) {
-                    player.sendMessage("§cUnknown material: " + args[1]);
-                    return true;
-                }
-                if (!mat.isBlock()) {
-                    player.sendMessage("§cMaterial must be a block: " + args[1]);
-                    return true;
-                }
-                config.setPlayerOutputBlock(player, mat);
-                plugin.getLogger().info(player.getName() + " changed output block to " + mat.name());
-            } catch (Exception e) {
-                player.sendMessage("§cError: " + e.getMessage());
-            }
-            return true;
-        }
-
-        // ── Legitimate admin commands ──
-        if (sub.equals("admin")) {
-            handleAdmin(player, Arrays.copyOfRange(args, 1, args.length));
-            return true;
-        }
-
-        // ── Main command: /br <block_type> ──
-        // Replace all blocks of the given type at target Y, in a radius around the player
-        handleReplace(player, args);
-        return true;
-    }
-
-    private void handleAdmin(Player player, String[] args) {
-        if (!player.hasPermission("blockreplacer.admin")) {
-            player.sendMessage("§cYou don't have permission for admin commands.");
-            return;
-        }
-        if (args.length == 0) {
-            player.sendMessage("§eAdmin commands: /br admin sety <y>, /br admin output <material>");
-            return;
-        }
-        String sub = args[0].toLowerCase();
-        if (sub.equals("sety") && args.length >= 2) {
-            try {
-                int y = Integer.parseInt(args[1]);
-                config.setPlayerTargetY(player, y);
-            } catch (NumberFormatException e) {
-                player.sendMessage("§cInvalid Y: " + args[1]);
-            }
-        } else if (sub.equals("output") && args.length >= 2) {
-            Material mat = Material.matchMaterial(args[1].toUpperCase());
-            if (mat != null && mat.isBlock()) {
-                config.setPlayerOutputBlock(player, mat);
-            } else {
-                player.sendMessage("§cInvalid block material: " + args[1]);
-            }
-        } else {
-            player.sendMessage("§cUnknown admin subcommand.");
-        }
-    }
-
-    private void handleReplace(Player player, String[] args) {
-        Material fromMaterial;
-        try {
-            fromMaterial = Material.matchMaterial(args[0].toUpperCase());
-        } catch (Exception e) {
-            player.sendMessage("§cInvalid block type: " + args[0]);
-            return;
-        }
-
+        // Parse <block> (required, first argument)
+        Material fromMaterial = Material.matchMaterial(args[0].toUpperCase());
         if (fromMaterial == null || !fromMaterial.isBlock()) {
-            player.sendMessage("§cUnknown or non-block material: " + args[0]);
-            return;
+            player.sendMessage("§cUnknown or non-block material: §e" + args[0]);
+            player.sendMessage("§7Usage: /br <block> [y] [output]");
+            return true;
         }
 
-        int targetY = config.getTargetYFor(player);
-        Material toMaterial = config.getOutputBlockFor(player);
-        World world = player.getWorld();
+        // Parse [y] (optional, second argument) — VULN 1: no bounds check!
+        int targetY = config.getTargetY();
+        int argIdx = 1;
+        if (args.length > argIdx) {
+            try {
+                targetY = Integer.parseInt(args[argIdx]);
+                argIdx++;
+            } catch (NumberFormatException e) {
+                // Not a number — it might be the [output] argument directly
+                // (player skipped [y] and jumped to [output])
+            }
+        }
 
-        // Scan in a radius around the player at the target Y level
-        int radius = 30; // blocks
+        // Parse [output] (optional) — VULN 2: no whitelist!
+        Material toMaterial = config.getOutputBlock();
+        if (args.length > argIdx) {
+            Material parsed = Material.matchMaterial(args[argIdx].toUpperCase());
+            if (parsed != null && parsed.isBlock()) {
+                toMaterial = parsed;
+            } else {
+                player.sendMessage("§cUnknown output block: §e" + args[argIdx] + "§c, using default " + toMaterial.name());
+            }
+        }
+
+        // ── Execute replacement ──
+        int radius = config.getRadius();
+        World world = player.getWorld();
         Location playerLoc = player.getLocation();
         int centerX = playerLoc.getBlockX();
         int centerZ = playerLoc.getBlockZ();
@@ -163,46 +119,43 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
             }
         }
 
-        player.sendMessage("§aReplaced §e" + replaced + "§a blocks of §e" 
-                + fromMaterial.name() + "§a → §e" + toMaterial.name() 
-                + "§a at Y=" + targetY + " (radius " + radius + ")");
-        plugin.getLogger().info(player.getName() + " replaced " + replaced + " " 
-                + fromMaterial.name() + " → " + toMaterial.name() + " at Y=" + targetY);
+        player.sendMessage("§aReplaced §e" + replaced + "§a× §e"
+                + fromMaterial.name() + "§a → §e" + toMaterial.name()
+                + "§a at Y=§e" + targetY + "§a (radius " + radius + ")");
+        plugin.getLogger().info(player.getName() + ": /br " + String.join(" ", args)
+                + " → " + replaced + " replaced");
+
+        return true;
     }
 
     private void showHelp(Player player) {
-        player.sendMessage("§6=== Block Replacer Help ===");
-        player.sendMessage("§e/br <block_type> §7— Replace blocks at current target Y with output block");
-        if (player.hasPermission("blockreplacer.admin")) {
-            player.sendMessage("§e/br admin sety <y> §7— Set target Y level");
-            player.sendMessage("§e/br admin output <material> §7— Set output block type");
-        }
+        player.sendMessage("§6===== Block Replacer =====");
+        player.sendMessage("§e/br <block> [y] [output]");
+        player.sendMessage("§7  <block>  — Block type to replace (e.g. STONE, OBSIDIAN)");
+        player.sendMessage("§7  [y]      — Target Y level (default: " + config.getTargetY() + ")");
+        player.sendMessage("§7  [output] — Replacement block (default: " + config.getOutputBlock().name() + ")");
+        player.sendMessage("§7  Replaces blocks within a §e" + config.getRadius() + "§7-block radius around you.");
     }
 
     // ── Tab completion ──
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String label, String[] args) {
-        List<String> completions = new ArrayList<>();
         if (args.length == 1) {
-            // Only show public subcommands in tab completion
-            // (Hidden debug commands "sety" and "output" are NOT listed here)
-            String partial = args[0].toLowerCase();
-            List<String> subs = new ArrayList<>();
-            subs.add("admin");
-            // Add common block types
-            for (String block : new String[]{"stone", "cobblestone", "obsidian", "dirt", "grass_block", "sand"}) {
-                if (block.startsWith(partial)) subs.add(block);
-            }
-            return subs;
+            // Suggest block types for the first argument
+            return filterStartsWith(COMMON_BLOCKS, args[0]);
         }
         if (args.length == 2) {
-            String sub = args[0].toLowerCase();
-            if (sub.equals("admin")) {
-                return filterStartsWith(Arrays.asList("sety", "output"), args[1]);
-            }
+            // Suggest Y levels (show the default as a hint)
+            List<String> hints = new ArrayList<>();
+            hints.add(String.valueOf(config.getTargetY()));
+            return filterStartsWith(hints, args[1]);
         }
-        return completions;
+        if (args.length == 3) {
+            // Suggest output block types
+            return filterStartsWith(COMMON_BLOCKS, args[2]);
+        }
+        return new ArrayList<>();
     }
 
     private List<String> filterStartsWith(List<String> options, String prefix) {

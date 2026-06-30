@@ -1,0 +1,7 @@
+# Block Replacer Configuration
+# Target Y level — blocks at this height will be replaced
+target_y: 64
+
+# Output block — what the matched blocks become
+# Valid values: any Minecraft block material name (e.g. BARRIER, AIR, STONE)
+output_block: BARRIER

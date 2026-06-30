@@ -1,0 +1,18 @@
+name: Teleport
+version: 1.0.0
+main: com.ntust.camp.teleport.TeleportPlugin
+api-version: 1.18
+description: Restricted flat teleport — only X/Z, max 100 blocks
+author: NTUST_CSIE_CAMP
+website: https://github.com/WuSandWitch/NTUST-CSIE-CAMP-vulnerable-plugins
+
+commands:
+  tp2:
+    description: Teleport to coordinates (flat plane, max 100 blocks)
+    usage: /tp2 <x> <z>
+    aliases: [tport, teleport2]
+
+permissions:
+  teleport.use:
+    description: Allows using /tp2 command
+    default: true

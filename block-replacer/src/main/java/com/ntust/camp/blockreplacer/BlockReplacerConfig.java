@@ -36,8 +36,8 @@ public class BlockReplacerConfig {
         }
     }
 
-    /** Scan radius in blocks. */
+    /** Scan radius in blocks (default 1 = 3×3 area). */
     public int getRadius() {
-        return getConfig().getInt("radius", 30);
+        return getConfig().getInt("radius", 1);
     }
 }

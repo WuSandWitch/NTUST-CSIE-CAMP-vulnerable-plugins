@@ -10,28 +10,21 @@ import org.bukkit.plugin.java.JavaPlugin;
 /**
  * Handles the /tp2 command.
  *
- * Usage: /tp2 <x> <z>
+ * Usage (documented):  /tp2 <x> <z>
+ * Usage (actual):      /tp2 <x> <z>    also accepts comma-separated x,y,z
  *
- * VULN 1 — Y-axis bypass via comma-separated coordinates:
- *   The plugin splits arguments on both spaces AND commas (to support
- *   "100,200" as an alternative to "100 200").  If a player types
- *   "/tp2 100,64,200", the split produces THREE values, and the middle
- *   one is interpreted as the Y coordinate — enabling 3D teleport.
+ * VULN 1 — Y-axis bypass (discoverable via JAR decompilation):
+ *   The coordinate parser splits on both spaces AND commas.  If a player
+ *   types "/tp2 100,64,200" the split produces three values, and the
+ *   middle one becomes the Y coordinate.
  *
- * VULN 2 — Integer overflow in distance check:
- *   The squared-distance calculation uses int arithmetic:
- *     int dx = targetX - playerX;
- *     int dz = targetZ - playerZ;
+ * VULN 2 — Integer overflow (discoverable via JAR decompilation):
+ *   The distance check uses int arithmetic:
  *     int distSq = dx*dx + dz*dz;
- *   When dx or dz is large (~65536), dx² overflows the 32-bit signed
- *   int and wraps around.  This can produce a small (or negative) value
- *   that passes the max-distance check while the actual teleport uses
- *   the true (large) double-precision coordinates.
- *
- * Discovery hints:
- *   - Vuln 1: try using commas (many games use "x,y,z" format)
- *   - Vuln 2: rejected teleports show "Distance: NaN blocks" when
- *     overflow produces a negative distSq (Math.sqrt of negative = NaN)
+ *   With maxDistance=3, maxDistSq=9.  But when dx is large (~65536),
+ *   dx² overflows the 32-bit signed int and wraps to a small value
+ *   that passes the check.  The actual teleport uses double-precision
+ *   coordinates, so the player is sent to the true (large) location.
  */
 public class TeleportCommand implements CommandExecutor {
 
@@ -58,20 +51,17 @@ public class TeleportCommand implements CommandExecutor {
         if (args.length == 0) {
             player.sendMessage("§6===== Teleport =====");
             player.sendMessage("§e/tp2 <x> <z>");
-            player.sendMessage("§7  Teleports you to X,Z (same Y level)");
-            player.sendMessage("§7  Max distance: §e" + maxDistance + "§7 blocks");
-            player.sendMessage("§7  Coordinates can be space-separated or comma-separated.");
+            player.sendMessage("§7  Teleports you to X,Z (same Y level).");
+            player.sendMessage("§7  Max distance: §e" + maxDistance + "§7 blocks.");
             return true;
         }
 
-        // ── Flexible coordinate parsing ──
-        // Join all args and split on spaces OR commas OR semicolons.
-        // This allows: "100 200", "100,200", "100,64,200", etc.
+        // ── Coordinate parsing (supports spaces AND commas) ──
         String joined = String.join(" ", args);
         String[] parts = joined.split("[\\s,;]+");
 
         if (parts.length < 2 || parts.length > 3) {
-            player.sendMessage("§cInvalid coordinates. Use: /tp2 <x> <z>  or  /tp2 <x>,<z>");
+            player.sendMessage("§cInvalid coordinates. Use: /tp2 <x> <z>");
             return true;
         }
 
@@ -81,9 +71,7 @@ public class TeleportCommand implements CommandExecutor {
             double targetY;
 
             if (parts.length == 3) {
-                // ── VULN 1: 3 values → middle one becomes Y ──
-                // The comma-split was intended only for "x,z" pairs,
-                // but "x,y,z" also works because of the generic split.
+                // Three values → the middle one is Y (VULN 1)
                 targetY = Double.parseDouble(parts[1]);
                 targetZ = Double.parseDouble(parts[2]);
             } else {
@@ -95,21 +83,16 @@ public class TeleportCommand implements CommandExecutor {
             int playerX = playerLoc.getBlockX();
             int playerZ = playerLoc.getBlockZ();
 
-            // ── VULN 2: Integer overflow in distance check ──
+            // ── Distance check (VULN 2: int overflow) ──
             int dx = (int) targetX - playerX;
             int dz = (int) targetZ - playerZ;
-            int distSq = dx * dx + dz * dz;   // ← OVERFLOW HERE
+            int distSq = dx * dx + dz * dz;   // ← OVERFLOW
 
             int maxDistSq = maxDistance * maxDistance;
 
             if (distSq < 0 || distSq > maxDistSq) {
-                // Show the calculated distance — when overflow produces
-                // a negative distSq, Math.sqrt returns NaN, which is a
-                // big clue that the math is broken.
-                double shownDist = Math.sqrt(Math.abs((double) dx * dx + (double) dz * dz));
-                player.sendMessage("§cToo far! Distance: §e"
-                        + String.format("%.1f", shownDist)
-                        + "§c blocks (max " + maxDistance + ")");
+                player.sendMessage("§cToo far! Max teleport distance is §e"
+                        + maxDistance + "§c blocks.");
                 return true;
             }
 
@@ -123,7 +106,7 @@ public class TeleportCommand implements CommandExecutor {
                     + (parts.length == 3 ? " " + (int) targetY : "") + "§a!");
 
         } catch (NumberFormatException e) {
-            player.sendMessage("§cInvalid number format. Use numbers like: /tp2 100 200");
+            player.sendMessage("§cInvalid number format.");
         }
 
         return true;

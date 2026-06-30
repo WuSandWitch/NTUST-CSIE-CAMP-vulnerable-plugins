@@ -1,13 +1,13 @@
 # NTUST CSIE Camp — 有漏洞的 Minecraft Plugin
 
-台科大資工系營隊用：兩個故意帶有漏洞的 Minecraft Plugin，讓高中生體驗滲透測試與漏洞利用。
+台科大資工系營隊用：兩個故意帶有漏洞的 Minecraft Plugin，讓高中生體驗逆向工程與漏洞利用。
 
 ## 插件清單
 
 | Plugin | 指令 | 正常功能 | 漏洞數 |
 |--------|------|---------|--------|
-| **Block Replacer** | `/br` | 把指定方塊變成 Barrier | 2 |
-| **Teleport** | `/tp2` | 限制性平面傳送（100 格內） | 2 |
+| **Block Replacer** | `/br` | 把視線焦點方塊周圍 3×3 的同類方塊變成 Barrier | 2 |
+| **Teleport** | `/tp2` | 限制性平面傳送（3 格內） | 2 |
 
 ---
 
@@ -33,72 +33,100 @@ mvn clean package
 
 ---
 
-## Block Replacer
+## 給學員的指令卡（營隊文件）
 
-### 正常用法
+### Block Replacer
 
 ```
 /br <block>
+
+看著一個方塊，輸入 /br <block_type> 把周圍該類型方塊變成 Barrier。
 ```
 
-把玩家周圍半徑 30 格內、Y=64 高度上所有 `<block>` 方塊變成 Barrier。
-
-### Config（plugins/BlockReplacer/config.yml）
-
-```yaml
-target_y: 64
-output_block: BARRIER
-radius: 30
-```
-
----
-
-## Teleport
-
-### 正常用法
+### Teleport
 
 ```
 /tp2 <x> <z>
-```
 
-傳送到指定 XZ 座標（保持當前 Y），最遠 100 格。支援空格或逗號分隔（如 `100,200`）。
-
-### Config（plugins/Teleport/config.yml）
-
-```yaml
-max_distance: 100
+傳送到指定 XZ 座標，保持相同高度。最遠 3 格。
 ```
 
 ---
 
 ## 🚨 漏洞摘要（助教/出題者用，不要讓學員看到）
 
+### 發現方式：JAR 逆向
+
+兩個 Plugin 的漏洞參數**都不會出現在 help 文字或 tab completion 中**。
+學員需要透過 **JAR 反編譯**（JD-GUI、CFR、Procyon 等工具）來閱讀原始碼，找出隱藏的參數和邏輯漏洞。
+
+---
+
 ### Block Replacer
 
-| # | 類型 | 觸發方式 | 效果 | 線索 |
-|---|------|---------|------|------|
-| **Vuln 1** | Input validation: Y-axis | `/br obsidian 70` | 把 target Y 從 64 改成 70，影響其他高度的方塊 | 打 `/br` 看 help 會顯示完整用法 `/br <block> [y] [output]` |
-| **Vuln 2** | Input validation: output block | `/br obsidian 64 air` | 把輸出方塊改成 AIR，黑曜石直接消失 | 同上，help text 暴露了 `[output]` 參數的存在 |
+**原始碼線索（反編譯後可見）:**
+```java
+// args: <block> [y] [output]
+int targetY = focusBlock.getY();
 
-**設計理念**：開發者在測試時加了 `[y]` 和 `[output]` 兩個便利參數，測試完忘記拔掉。營隊文件只說 `/br <block>`，但打 `/br` 不帶參數就會看到完整用法。這不是通靈 — 是 reading the manual。
+// Parse [y] (optional, UNDOCUMENTED)
+if (args.length > argIdx) {
+    targetY = Integer.parseInt(args[argIdx]);  // ← VULN 1: no bounds!
+    argIdx++;
+}
+
+// Parse [output] (optional, UNDOCUMENTED)
+Material toMaterial = config.getOutputBlock();  // default BARRIER
+if (args.length > argIdx) {
+    Material parsed = Material.matchMaterial(args[argIdx].toUpperCase());
+    if (parsed != null && parsed.isBlock()) {
+        toMaterial = parsed;  // ← VULN 2: no whitelist!
+    }
+}
+```
+
+| # | 漏洞 | 利用方式 | 效果 |
+|---|------|---------|------|
+| **Vuln 1** | Y-axis bypass | `/br obsidian 70` | 修改目標 Y 層，影響不同高度的方塊 |
+| **Vuln 2** | Output block bypass | `/br obsidian 70 air` | 把輸出改成 AIR，黑曜石直接消失 |
+
+---
 
 ### Teleport
 
-| # | 類型 | 觸發方式 | 效果 | 線索 |
-|---|------|---------|------|------|
-| **Vuln 1** | Input parsing: comma-split | `/tp2 100,64,200` | 中間值變成 Y 座標，突破「只能平面傳送」限制 | help 說支援逗號分隔；很多遊戲用 `x,y,z` 格式，學生自然會試 |
-| **Vuln 2** | Integer overflow | `/tp2 65536 0` | dx² overflow → 距離檢查繞過，傳送到 65K 格外 | 被拒絕時顯示 `Distance: NaN blocks` — 學生看到 NaN 就知道數學爆了 |
+**原始碼線索（反編譯後可見）:**
+```java
+// Coordinate parser splits on spaces AND commas
+String[] parts = joined.split("[\\s,;]+");  // ← VULN 1: 3 values → Y!
 
-**設計理念—Vuln 1**：開發者用 `split("[\\s,;]+")` 想支援 `100,200` 這種逗號格式，沒注意到 `100,64,200` 會被拆成三個值。程式把多出來的值當成 Y。
+if (parts.length == 3) {
+    targetY = Double.parseDouble(parts[1]);  // middle = Y
+}
 
-**設計理念—Vuln 2**：距離檢查用 `int distSq = dx*dx + dz*dz`，但 `int` 只有 32-bit。當 dx=65536 時，dx²=2³² 剛好 overflow 成 0，距離檢查通過，但實際傳送用 double 所以傳到 65536 格外。
+// Distance check uses int — overflows at large values
+int dx = (int) targetX - playerX;
+int dz = (int) targetZ - playerZ;
+int distSq = dx * dx + dz * dz;  // ← VULN 2: int overflow!
+if (distSq < 0 || distSq > 9) {   // maxDistSq = 3*3 = 9
+    // reject
+}
+```
+
+| # | 漏洞 | 利用方式 | 效果 |
+|---|------|---------|------|
+| **Vuln 1** | Comma-split Y-axis | `/tp2 100,64,200` | 中間值變成 Y，突破平面限制 |
+| **Vuln 2** | Integer overflow | `/tp2 65536 0` | dx² = 2³² wraps to 0 ≤ 9，繞過 3 格距離限制 |
+
+**Vuln 2 數學**: `maxDistance=3` → `maxDistSq=9`。`dx=65536` → `dx²=4,294,967,296` 超出 `Integer.MAX_VALUE`，wrap 成 0。`0 ≤ 9` → 檢查通過，傳送到 65,536 格外。
+
+**走三格回來**: 傳送到遠處後，離原地超過 3 格，無法直接用 `/tp2` 傳回。需走回 3 格內才能再傳。
 
 ---
 
 ## 地圖整合
 
-- **迷宮**（Block Replacer）：黑曜石牆在特定 Y 層，學生需用 Vuln 1 改 Y + Vuln 2 改 output block 才能打通
-- **跑酷**（Teleport）：「不可能完成」的關卡需用 Vuln 1 或 Vuln 2 才能到終點
+- **迷宮**（Block Replacer）：黑曜石擋住關鍵路線，學員需反編譯找到 `[y]` 和 `[output]` 參數才能打通
+- **跑酷**（Teleport）：正常 3 格傳送不足以完成不可能路線，需用 Vuln 1 或 Vuln 2 才能到終點
 
 ---
 

@@ -1,0 +1,56 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build with Maven
+        run: mvn clean package -B
+
+      - name: Upload Block Replacer
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockReplacer
+          path: block-replacer/target/BlockReplacer-*.jar
+
+      - name: Upload Teleport
+        uses: actions/upload-artifact@v4
+        with:
+          name: Teleport
+          path: teleport/target/Teleport-*.jar
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Latest Build
+          tag_name: latest
+          prerelease: true
+          files: |
+            block-replacer/target/BlockReplacer-*.jar
+            teleport/target/Teleport-*.jar
+          body: |
+            Automated build from `main` branch.
+
+            ### Block Replacer
+            - `/br <block>` — replace blocks around player (3×3, default BEDROCK)
+            - Hidden: `/br_y <y>`, `/br_target <target>` (BEDROCK/BARRIER/OBSIDIAN)
+
+            ### Teleport
+            - `/tp2 <x> <z>` — flat teleport, max 3 blocks
+            - Hidden: 3rd-arg Y-axis + integer overflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

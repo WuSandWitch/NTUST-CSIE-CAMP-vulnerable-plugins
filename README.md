@@ -6,7 +6,7 @@
 
 | Plugin | 指令 | 正常功能 | 漏洞 |
 |--------|------|---------|------|
-| **Block Replacer** | `/br` | 把玩家周圍 3×3 的方塊變成基岩 | Y-axis 竄改 + whitelist 繞過 |
+| **Block Replacer** | `/br` | 把玩家周圍 3×3 的方塊變成基岩 | Y-axis 竄改 + 隱藏輸出方塊修改 |
 | **Teleport** | `/tp2` | 限制性平面傳送（3 格內） | Y-axis 突破 + Integer Overflow |
 
 ---
@@ -66,29 +66,20 @@ mvn clean package
 
 **隱藏指令（plugin.yml 裡註冊為 `/br` 的 alias）:**
 
-| 指令 | 功能 | 漏洞 |
+| 指令 | 功能 | 說明 |
 |------|------|------|
 | `/br_y <y>` | 修改 target Y | **無權限檢查、無 bounds check** — 可以設任意高度 |
-| `/br_target <allowed> [actual]` | 修改輸出方塊 | **whitelist 只在第一參數檢查**，第二參數直接拿來用 |
+| `/br_target <target>` | 修改輸出方塊 | **有白名單**：僅限 BEDROCK / BARRIER / OBSIDIAN |
 
 **Vuln 1: `/br_y`**
-- 反編譯後在 plugin.yml 會看到 `aliases: [br_y, br_target]`
+- 反編譯後在 plugin.yml 看到 `aliases: [br_y, br_target]`
 - 或在原始碼看到 `label.equalsIgnoreCase("br_y")` 分支
 - 沒有任何權限或範圍驗證
 
-**Vuln 2: `/br_target` 的 whitelist 繞過**
-```java
-// Whitelist only checks args[0]
-if (!ALLOWED_TARGETS.contains(args[0].toUpperCase())) { reject; }
-
-// But applies args[1] if present!
-String actualName = args.length >= 2 ? args[1] : args[0];
-Material mat = Material.matchMaterial(actualName.toUpperCase());
-config.setOutputBlock(mat);
-```
-- `/br_target BEDROCK` → whitelist 通過，輸出 = 基岩
-- `/br_target BEDROCK AIR` → whitelist 檢查 "BEDROCK" 通過，但輸出 = AIR
-- 學員需反編譯發現第二參數的存在
+**Vuln 2: `/br_target`**
+- 白名單嚴格限制為 `BEDROCK`、`BARRIER`、`OBSIDIAN`
+- 用途：學員逆向發現後，把輸出改成 `BARRIER`（屏障）
+- 搭配 `/br_y` 調整高度，用 `/br obsidian` 把迷宮的黑曜石牆變成透明屏障 → **看穿迷宮結構**
 
 ---
 
@@ -107,8 +98,8 @@ config.setOutputBlock(mat);
 
 ## 地圖整合
 
-- **迷宮**（Block Replacer）：學員需反編譯找到 `/br_y` 和 `/br_target` 才能打通黑曜石牆
-- **跑酷**（Teleport）：正常 3 格傳送不夠，需用 Vuln 1 或 Vuln 2 才能到終點
+- **迷宮**（Block Replacer）：學員逆向找到 `/br_y` 和 `/br_target BARRIER`，把黑曜石牆變透明屏障看穿路線
+- **跑酷**（Teleport）：正常 3 格傳送不夠，逆向發現第三參數或 int overflow → 傳到終點
 
 ---
 

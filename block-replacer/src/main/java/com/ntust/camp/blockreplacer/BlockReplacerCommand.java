@@ -30,12 +30,9 @@ import java.util.List;
  *     no permission check.  Registered as an alias of /br so
  *     it appears in plugin.yml but has no help entry.
  *
- *   /br_target <allowed> [actual]
- *     VULN 2 — Changes the output block.  The FIRST argument is
- *     checked against a whitelist (BEDROCK/BARRIER/OBSIDIAN).
- *     If a SECOND argument is provided, it is used as the actual
- *     output block WITH NO WHITELIST CHECK.
- *     e.g. /br_target BEDROCK AIR → output becomes AIR.
+ *   /br_target <target>
+ *     VULN 2 — Changes the output block.  The target is checked
+ *     against a whitelist (BEDROCK / BARRIER / OBSIDIAN).
  */
 public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
 
@@ -104,12 +101,9 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
-            // BUG: if a second argument exists, it bypasses the whitelist
-            String actualName = args.length >= 2 ? args[1] : args[0];
-            Material mat = Material.matchMaterial(actualName.toUpperCase());
-
+            Material mat = Material.matchMaterial(whitelistCheck);
             if (mat == null || !mat.isBlock()) {
-                player.sendMessage("§cInvalid block: " + actualName);
+                player.sendMessage("§cInvalid block: " + args[0]);
                 return true;
             }
 
@@ -164,8 +158,9 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
     private void showHelp(Player player) {
         player.sendMessage("§6===== Block Replacer =====");
         player.sendMessage("§e/br <block>");
-        player.sendMessage("§7  Replaces matching blocks around you with BEDROCK.");
+        player.sendMessage("§7  Replaces matching blocks around you.");
         player.sendMessage("§7  Current target Y: §e" + config.getTargetY());
+        player.sendMessage("§7  Output block: §e" + config.getOutputBlock().name());
     }
 
     @Override

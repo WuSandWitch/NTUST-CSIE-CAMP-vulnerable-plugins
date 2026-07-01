@@ -2,20 +2,17 @@ name: BlockReplacer
 version: 1.0.0
 main: com.ntust.camp.blockreplacer.BlockReplacerPlugin
 api-version: 1.18
-description: Replace blocks at a fixed Y level with barrier blocks
+description: Replace blocks around you with bedrock
 author: NTUST_CSIE_CAMP
 website: https://github.com/WuSandWitch/NTUST-CSIE-CAMP-vulnerable-plugins
 
 commands:
   br:
-    description: Replace blocks at target Y level with barrier
-    usage: /br <block_type>
-    aliases: [blockreplace, replacer]
+    description: Replace blocks around you with bedrock
+    usage: /br <block>
+    aliases: [br_y, br_target]
 
 permissions:
   blockreplacer.use:
     description: Allows using /br command
     default: true
-  blockreplacer.admin:
-    description: Allows admin commands (set output, set Y)
-    default: op

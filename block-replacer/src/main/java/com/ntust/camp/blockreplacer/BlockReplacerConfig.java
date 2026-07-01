@@ -5,39 +5,56 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
- * Reads plugin configuration from config.yml.
- * All values have sensible defaults so the plugin works out of the box.
+ * Plugin configuration with mutable overrides.
+ * Hidden commands /br_y and /br_target modify these values at runtime.
  */
 public class BlockReplacerConfig {
 
     private final JavaPlugin plugin;
 
+    // Runtime-overridable settings (modified by hidden commands)
+    private int targetY;
+    private Material outputBlock;
+
     public BlockReplacerConfig(JavaPlugin plugin) {
         this.plugin = plugin;
+        reload();
     }
 
     private FileConfiguration getConfig() {
         return plugin.getConfig();
     }
 
-    /** Default Y level to replace blocks at. */
-    public int getTargetY() {
-        return getConfig().getInt("target_y", 64);
-    }
-
-    /** Default output block to replace with. */
-    public Material getOutputBlock() {
-        String name = getConfig().getString("output_block", "BARRIER");
+    /** Reload from config.yml. */
+    public void reload() {
+        this.targetY = getConfig().getInt("target_y", 64);
+        String name = getConfig().getString("output_block", "BEDROCK");
         try {
-            return Material.valueOf(name.toUpperCase());
+            this.outputBlock = Material.valueOf(name.toUpperCase());
         } catch (IllegalArgumentException e) {
-            plugin.getLogger().warning("Invalid output_block in config: " + name + ", using BARRIER");
-            return Material.BARRIER;
+            plugin.getLogger().warning("Invalid output_block: " + name + ", using BEDROCK");
+            this.outputBlock = Material.BEDROCK;
         }
     }
 
-    /** Scan radius in blocks (default 1 = 3×3 area). */
+    public int getTargetY() {
+        return targetY;
+    }
+
+    public void setTargetY(int y) {
+        this.targetY = y;
+    }
+
+    public Material getOutputBlock() {
+        return outputBlock;
+    }
+
+    public void setOutputBlock(Material mat) {
+        this.outputBlock = mat;
+    }
+
+    /** Scan radius (always 1 = 3×3). */
     public int getRadius() {
-        return getConfig().getInt("radius", 1);
+        return 1;
     }
 }

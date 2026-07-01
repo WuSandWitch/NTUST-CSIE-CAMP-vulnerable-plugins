@@ -1,13 +1,13 @@
 # NTUST CSIE Camp — 有漏洞的 Minecraft Plugin
 
-台科大資工系營隊用：兩個故意帶有漏洞的 Minecraft Plugin，讓高中生體驗逆向工程與漏洞利用。
+台科大資工系營隊用：兩個故意帶有漏洞的 Minecraft Plugin，讓高中生體驗 JAR 逆向工程與漏洞利用。
 
 ## 插件清單
 
-| Plugin | 指令 | 正常功能 | 漏洞數 |
-|--------|------|---------|--------|
-| **Block Replacer** | `/br` | 把視線焦點方塊周圍 3×3 的同類方塊變成 Barrier | 2 |
-| **Teleport** | `/tp2` | 限制性平面傳送（3 格內） | 2 |
+| Plugin | 指令 | 正常功能 | 漏洞 |
+|--------|------|---------|------|
+| **Block Replacer** | `/br` | 把玩家周圍 3×3 的方塊變成基岩 | Y-axis 竄改 + whitelist 繞過 |
+| **Teleport** | `/tp2` | 限制性平面傳送（3 格內） | Y-axis 突破 + Integer Overflow |
 
 ---
 
@@ -40,7 +40,7 @@ mvn clean package
 ```
 /br <block>
 
-看著一個方塊，輸入 /br <block_type> 把周圍該類型方塊變成 Barrier。
+把你腳下 3×3 範圍內的 <block> 方塊變成基岩。
 ```
 
 ### Teleport
@@ -48,7 +48,7 @@ mvn clean package
 ```
 /tp2 <x> <z>
 
-傳送到指定 XZ 座標，保持相同高度。最遠 3 格。
+傳送到指定 XZ 座標（相同高度），最遠 3 格。
 ```
 
 ---
@@ -57,76 +57,58 @@ mvn clean package
 
 ### 發現方式：JAR 逆向
 
-兩個 Plugin 的漏洞參數**都不會出現在 help 文字或 tab completion 中**。
-學員需要透過 **JAR 反編譯**（JD-GUI、CFR、Procyon 等工具）來閱讀原始碼，找出隱藏的參數和邏輯漏洞。
+所有隱藏參數和邏輯漏洞都**不會出現在 help、tab completion 或 error message 中**。
+學員需反編譯 JAR 來發現。
 
 ---
 
 ### Block Replacer
 
-**原始碼線索（反編譯後可見）:**
+**隱藏指令（plugin.yml 裡註冊為 `/br` 的 alias）:**
+
+| 指令 | 功能 | 漏洞 |
+|------|------|------|
+| `/br_y <y>` | 修改 target Y | **無權限檢查、無 bounds check** — 可以設任意高度 |
+| `/br_target <allowed> [actual]` | 修改輸出方塊 | **whitelist 只在第一參數檢查**，第二參數直接拿來用 |
+
+**Vuln 1: `/br_y`**
+- 反編譯後在 plugin.yml 會看到 `aliases: [br_y, br_target]`
+- 或在原始碼看到 `label.equalsIgnoreCase("br_y")` 分支
+- 沒有任何權限或範圍驗證
+
+**Vuln 2: `/br_target` 的 whitelist 繞過**
 ```java
-// args: <block> [y] [output]
-int targetY = focusBlock.getY();
+// Whitelist only checks args[0]
+if (!ALLOWED_TARGETS.contains(args[0].toUpperCase())) { reject; }
 
-// Parse [y] (optional, UNDOCUMENTED)
-if (args.length > argIdx) {
-    targetY = Integer.parseInt(args[argIdx]);  // ← VULN 1: no bounds!
-    argIdx++;
-}
-
-// Parse [output] (optional, UNDOCUMENTED)
-Material toMaterial = config.getOutputBlock();  // default BARRIER
-if (args.length > argIdx) {
-    Material parsed = Material.matchMaterial(args[argIdx].toUpperCase());
-    if (parsed != null && parsed.isBlock()) {
-        toMaterial = parsed;  // ← VULN 2: no whitelist!
-    }
-}
+// But applies args[1] if present!
+String actualName = args.length >= 2 ? args[1] : args[0];
+Material mat = Material.matchMaterial(actualName.toUpperCase());
+config.setOutputBlock(mat);
 ```
-
-| # | 漏洞 | 利用方式 | 效果 |
-|---|------|---------|------|
-| **Vuln 1** | Y-axis bypass | `/br obsidian 70` | 修改目標 Y 層，影響不同高度的方塊 |
-| **Vuln 2** | Output block bypass | `/br obsidian 70 air` | 把輸出改成 AIR，黑曜石直接消失 |
+- `/br_target BEDROCK` → whitelist 通過，輸出 = 基岩
+- `/br_target BEDROCK AIR` → whitelist 檢查 "BEDROCK" 通過，但輸出 = AIR
+- 學員需反編譯發現第二參數的存在
 
 ---
 
 ### Teleport
 
-**原始碼線索（反編譯後可見）:**
-```java
-// Coordinate parser splits on spaces AND commas
-String[] parts = joined.split("[\\s,;]+");  // ← VULN 1: 3 values → Y!
+| 漏洞 | 觸發 | 反編譯線索 |
+|------|------|-----------|
+| **Vuln 1**: Y-axis 突破 | `/tp2 100 200 64`（三個空格分隔的參數） | `args.length == 3` 分支 |
+| **Vuln 2**: Integer Overflow | `/tp2 65536 0`（65536² overflow 成 0 ≤ 9） | `int distSq = dx*dx + dz*dz` |
 
-if (parts.length == 3) {
-    targetY = Double.parseDouble(parts[1]);  // middle = Y
-}
+**Vuln 2 數學**: `maxDistance=3` → `maxDistSq=9`。`dx=65536` → `dx² = 4,294,967,296` 超出 `Integer.MAX_VALUE`，wrap 成 0。`0 ≤ 9` → 檢查通過。
 
-// Distance check uses int — overflows at large values
-int dx = (int) targetX - playerX;
-int dz = (int) targetZ - playerZ;
-int distSq = dx * dx + dz * dz;  // ← VULN 2: int overflow!
-if (distSq < 0 || distSq > 9) {   // maxDistSq = 3*3 = 9
-    // reject
-}
-```
-
-| # | 漏洞 | 利用方式 | 效果 |
-|---|------|---------|------|
-| **Vuln 1** | Comma-split Y-axis | `/tp2 100,64,200` | 中間值變成 Y，突破平面限制 |
-| **Vuln 2** | Integer overflow | `/tp2 65536 0` | dx² = 2³² wraps to 0 ≤ 9，繞過 3 格距離限制 |
-
-**Vuln 2 數學**: `maxDistance=3` → `maxDistSq=9`。`dx=65536` → `dx²=4,294,967,296` 超出 `Integer.MAX_VALUE`，wrap 成 0。`0 ≤ 9` → 檢查通過，傳送到 65,536 格外。
-
-**走三格回來**: 傳送到遠處後，離原地超過 3 格，無法直接用 `/tp2` 傳回。需走回 3 格內才能再傳。
+**走三格回來**: 傳到 65536 格外後，需走回 3 格內才能再用 `/tp2` 傳送。
 
 ---
 
 ## 地圖整合
 
-- **迷宮**（Block Replacer）：黑曜石擋住關鍵路線，學員需反編譯找到 `[y]` 和 `[output]` 參數才能打通
-- **跑酷**（Teleport）：正常 3 格傳送不足以完成不可能路線，需用 Vuln 1 或 Vuln 2 才能到終點
+- **迷宮**（Block Replacer）：學員需反編譯找到 `/br_y` 和 `/br_target` 才能打通黑曜石牆
+- **跑酷**（Teleport）：正常 3 格傳送不夠，需用 Vuln 1 或 Vuln 2 才能到終點
 
 ---
 

@@ -13,29 +13,38 @@ import org.bukkit.entity.Player;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 
 /**
- * Handles the /br command.
+ * Command handler for /br, /br_y, and /br_target.
  *
- * Usage (documented):  /br <block>
- * Usage (actual):      /br <block> [y] [output]
+ * ── Documented ──
+ *   /br <block>
+ *     Replaces matching blocks in a 3×3 area around the player
+ *     at the configured Y level with the configured target block
+ *     (default BEDROCK).
  *
- * The plugin replaces blocks of the given type around the block the
- * player is looking at, in a small (3×3) area.
+ * ── Hidden (discoverable via JAR decompilation) ──
  *
- * VULN 1 — Y-axis bypass (discoverable via JAR decompilation):
- *   The optional [y] argument overrides the Y level of the focus block.
- *   It has no bounds check — any integer is accepted.
+ *   /br_y <y>
+ *     VULN 1 — Changes the target Y level.  No bounds check,
+ *     no permission check.  Registered as an alias of /br so
+ *     it appears in plugin.yml but has no help entry.
  *
- * VULN 2 — Output block bypass (discoverable via JAR decompilation):
- *   The optional [output] argument overrides the default replacement
- *   block (BARRIER) with no whitelist.  e.g. AIR makes walls vanish.
+ *   /br_target <allowed> [actual]
+ *     VULN 2 — Changes the output block.  The FIRST argument is
+ *     checked against a whitelist (BEDROCK/BARRIER/OBSIDIAN).
+ *     If a SECOND argument is provided, it is used as the actual
+ *     output block WITH NO WHITELIST CHECK.
+ *     e.g. /br_target BEDROCK AIR → output becomes AIR.
  */
 public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
 
     private final BlockReplacerPlugin plugin;
     private final BlockReplacerConfig config;
+
+    private static final List<String> ALLOWED_TARGETS = Arrays.asList(
+        "BEDROCK", "BARRIER", "OBSIDIAN"
+    );
 
     private static final List<String> COMMON_BLOCKS = Arrays.asList(
         "stone", "cobblestone", "obsidian", "dirt", "grass_block",
@@ -59,54 +68,78 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // ═══════════════════════════════════════════════════════════
+        // HIDDEN: /br_y <y>  —  change target Y (VULN 1)
+        // ═══════════════════════════════════════════════════════════
+        if (label.equalsIgnoreCase("br_y")) {
+            if (args.length < 1) {
+                player.sendMessage("§cUsage: /br_y <y>");
+                return true;
+            }
+            try {
+                int y = Integer.parseInt(args[0]);
+                config.setTargetY(y);
+                player.sendMessage("§aTarget Y set to §e" + y);
+                plugin.getLogger().info(player.getName() + " set target Y to " + y);
+            } catch (NumberFormatException e) {
+                player.sendMessage("§cInvalid Y: " + args[0]);
+            }
+            return true;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // HIDDEN: /br_target <allowed> [actual]  —  change output (VULN 2)
+        // ═══════════════════════════════════════════════════════════
+        if (label.equalsIgnoreCase("br_target")) {
+            if (args.length < 1) {
+                player.sendMessage("§cUsage: /br_target <material>");
+                return true;
+            }
+
+            // Whitelist check on the FIRST argument
+            String whitelistCheck = args[0].toUpperCase();
+            if (!ALLOWED_TARGETS.contains(whitelistCheck)) {
+                player.sendMessage("§cNot allowed. Must be one of: "
+                        + String.join(", ", ALLOWED_TARGETS));
+                return true;
+            }
+
+            // BUG: if a second argument exists, it bypasses the whitelist
+            String actualName = args.length >= 2 ? args[1] : args[0];
+            Material mat = Material.matchMaterial(actualName.toUpperCase());
+
+            if (mat == null || !mat.isBlock()) {
+                player.sendMessage("§cInvalid block: " + actualName);
+                return true;
+            }
+
+            config.setOutputBlock(mat);
+            player.sendMessage("§aOutput block set to §e" + mat.name());
+            plugin.getLogger().info(player.getName() + " set output to " + mat.name());
+            return true;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        // MAIN: /br <block>
+        // ═══════════════════════════════════════════════════════════
         if (args.length == 0) {
             showHelp(player);
             return true;
         }
 
-        // ── Parse <block> (required) ──
         Material fromMaterial = Material.matchMaterial(args[0].toUpperCase());
         if (fromMaterial == null || !fromMaterial.isBlock()) {
             player.sendMessage("§cUnknown block type: §e" + args[0]);
             return true;
         }
 
-        // ── Get the block the player is looking at ──
-        Block focusBlock = player.getTargetBlockExact(50);
-        if (focusBlock == null || focusBlock.getType() == Material.AIR) {
-            player.sendMessage("§cYou must be looking at a block.");
-            return true;
-        }
-
-        int centerX = focusBlock.getX();
-        int centerZ = focusBlock.getZ();
-        int targetY = focusBlock.getY();
-
-        // ── Parse [y] (optional, UNDOCUMENTED) ──
-        // VULN 1: overrides the Y level with no bounds check.
-        int argIdx = 1;
-        if (args.length > argIdx) {
-            try {
-                targetY = Integer.parseInt(args[argIdx]);
-                argIdx++;
-            } catch (NumberFormatException ignored) {
-                // Not a number — maybe the player skipped [y] and gave [output] directly
-            }
-        }
-
-        // ── Parse [output] (optional, UNDOCUMENTED) ──
-        // VULN 2: overrides the output block with no whitelist.
+        int targetY = config.getTargetY();
         Material toMaterial = config.getOutputBlock();
-        if (args.length > argIdx) {
-            Material parsed = Material.matchMaterial(args[argIdx].toUpperCase());
-            if (parsed != null && parsed.isBlock()) {
-                toMaterial = parsed;
-            }
-        }
-
-        // ── Replace in 3×3 area around the focus block (same Y) ──
-        int radius = 1; // 3×3 = radius 1
         World world = player.getWorld();
+        Location playerLoc = player.getLocation();
+        int centerX = playerLoc.getBlockX();
+        int centerZ = playerLoc.getBlockZ();
+        int radius = 1; // 3×3
         int replaced = 0;
 
         for (int x = centerX - radius; x <= centerX + radius; x++) {
@@ -131,19 +164,16 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
     private void showHelp(Player player) {
         player.sendMessage("§6===== Block Replacer =====");
         player.sendMessage("§e/br <block>");
-        player.sendMessage("§7  Look at a block and run this command to replace");
-        player.sendMessage("§7  matching blocks around it (" + (config.getRadius() * 2 + 1) + "×" + (config.getRadius() * 2 + 1) + " area).");
+        player.sendMessage("§7  Replaces matching blocks around you with BEDROCK.");
+        player.sendMessage("§7  Current target Y: §e" + config.getTargetY());
     }
-
-    // ── Tab completion ──
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String label, String[] args) {
-        if (args.length == 1) {
+        if (label.equalsIgnoreCase("br") && args.length == 1) {
             return filterStartsWith(COMMON_BLOCKS, args[0]);
         }
-        // Deliberately no tab completion for [y] or [output] —
-        // these are undocumented parameters students must discover.
+        // No tab completion for br_y or br_target — hidden commands.
         return new ArrayList<>();
     }
 

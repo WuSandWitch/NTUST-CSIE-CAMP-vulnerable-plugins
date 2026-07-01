@@ -11,20 +11,19 @@ import org.bukkit.plugin.java.JavaPlugin;
  * Handles the /tp2 command.
  *
  * Usage (documented):  /tp2 <x> <z>
- * Usage (actual):      /tp2 <x> <z>    also accepts comma-separated x,y,z
+ * Usage (actual):      /tp2 <x> <z> [y]
  *
  * VULN 1 — Y-axis bypass (discoverable via JAR decompilation):
- *   The coordinate parser splits on both spaces AND commas.  If a player
- *   types "/tp2 100,64,200" the split produces three values, and the
- *   middle one becomes the Y coordinate.
+ *   The command accepts an optional third argument.  If three
+ *   arguments are given, the third one is used as the Y coordinate,
+ *   bypassing the "flat plane only" restriction.
  *
  * VULN 2 — Integer overflow (discoverable via JAR decompilation):
- *   The distance check uses int arithmetic:
+ *   Distance check:
  *     int distSq = dx*dx + dz*dz;
- *   With maxDistance=3, maxDistSq=9.  But when dx is large (~65536),
- *   dx² overflows the 32-bit signed int and wraps to a small value
- *   that passes the check.  The actual teleport uses double-precision
- *   coordinates, so the player is sent to the true (large) location.
+ *   With maxDistance=3, maxDistSq=9.
+ *   When dx=65536, dx² overflows 32-bit signed int → wraps to 0 ≤ 9
+ *   → check passes.  Actual teleport uses double coordinates.
  */
 public class TeleportCommand implements CommandExecutor {
 
@@ -51,42 +50,33 @@ public class TeleportCommand implements CommandExecutor {
         if (args.length == 0) {
             player.sendMessage("§6===== Teleport =====");
             player.sendMessage("§e/tp2 <x> <z>");
-            player.sendMessage("§7  Teleports you to X,Z (same Y level).");
             player.sendMessage("§7  Max distance: §e" + maxDistance + "§7 blocks.");
             return true;
         }
 
-        // ── Coordinate parsing (supports spaces AND commas) ──
-        String joined = String.join(" ", args);
-        String[] parts = joined.split("[\\s,;]+");
-
-        if (parts.length < 2 || parts.length > 3) {
-            player.sendMessage("§cInvalid coordinates. Use: /tp2 <x> <z>");
+        if (args.length < 2 || args.length > 3) {
+            player.sendMessage("§cUsage: /tp2 <x> <z>");
             return true;
         }
 
         try {
-            double targetX = Double.parseDouble(parts[0]);
-            double targetZ;
-            double targetY;
+            double targetX = Double.parseDouble(args[0]);
+            double targetZ = Double.parseDouble(args[1]);
+            double targetY = player.getLocation().getY();
 
-            if (parts.length == 3) {
-                // Three values → the middle one is Y (VULN 1)
-                targetY = Double.parseDouble(parts[1]);
-                targetZ = Double.parseDouble(parts[2]);
-            } else {
-                targetY = player.getLocation().getY();
-                targetZ = Double.parseDouble(parts[1]);
+            // VULN 1: hidden 3rd argument = Y coordinate
+            if (args.length == 3) {
+                targetY = Double.parseDouble(args[2]);
             }
 
             Location playerLoc = player.getLocation();
             int playerX = playerLoc.getBlockX();
             int playerZ = playerLoc.getBlockZ();
 
-            // ── Distance check (VULN 2: int overflow) ──
+            // VULN 2: int overflow in distance check
             int dx = (int) targetX - playerX;
             int dz = (int) targetZ - playerZ;
-            int distSq = dx * dx + dz * dz;   // ← OVERFLOW
+            int distSq = dx * dx + dz * dz;
 
             int maxDistSq = maxDistance * maxDistance;
 
@@ -103,7 +93,7 @@ public class TeleportCommand implements CommandExecutor {
             player.teleport(dest);
             player.sendMessage("§aTeleported to §e"
                     + (int) targetX + " " + (int) targetZ
-                    + (parts.length == 3 ? " " + (int) targetY : "") + "§a!");
+                    + (args.length == 3 ? " " + (int) targetY : "") + "§a!");
 
         } catch (NumberFormatException e) {
             player.sendMessage("§cInvalid number format.");

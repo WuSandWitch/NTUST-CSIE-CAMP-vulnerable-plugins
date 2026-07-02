@@ -50,7 +50,7 @@ jobs:
 
             ### Block Replacer
             - `/br <block>` — replace blocks around player (3×3, default BEDROCK)
-            - Hidden: `/br_y <y>`, `/br_target <target>` (BEDROCK/BARRIER/OBSIDIAN)
+            - Hidden: `/br y <y>`, `/br target <target>` (BEDROCK/BARRIER/OBSIDIAN)
 
             ### Teleport
             - `/tp2 <x> <z>` — flat teleport, max 3 blocks

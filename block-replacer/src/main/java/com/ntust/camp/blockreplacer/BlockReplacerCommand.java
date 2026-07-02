@@ -15,7 +15,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Command handler for /br, /br_y, and /br_target.
+ * Command handler for /br (with hidden sub-arguments).
  *
  * ── Documented ──
  *   /br <block>
@@ -25,12 +25,12 @@ import java.util.List;
  *
  * ── Hidden (discoverable via JAR decompilation) ──
  *
- *   /br_y <y>
+ *   /br y <y>
  *     VULN 1 — Changes the target Y level.  No bounds check,
- *     no permission check.  Registered as an alias of /br so
- *     it appears in plugin.yml but has no help entry.
+ *     no permission check.  Implemented as a sub-argument so
+ *     it does not appear as a separate command in /help.
  *
- *   /br_target <target>
+ *   /br target <material>
  *     VULN 2 — Changes the output block.  The target is checked
  *     against a whitelist (BEDROCK / BARRIER / OBSIDIAN).
  */
@@ -65,36 +65,44 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // No args → show help
+        if (args.length == 0) {
+            showHelp(player);
+            return true;
+        }
+
         // ═══════════════════════════════════════════════════════════
-        // HIDDEN: /br_y <y>  —  change target Y (VULN 1)
+        // HIDDEN: /br y <y>  —  change target Y (VULN 1)
+        //   Discoverable via JAR decompilation — not shown in /help.
         // ═══════════════════════════════════════════════════════════
-        if (label.equalsIgnoreCase("br_y")) {
-            if (args.length < 1) {
-                player.sendMessage("§cUsage: /br_y <y>");
+        if (args[0].equalsIgnoreCase("y")) {
+            if (args.length < 2) {
+                player.sendMessage("§cUsage: /br y <y>");
                 return true;
             }
             try {
-                int y = Integer.parseInt(args[0]);
+                int y = Integer.parseInt(args[1]);
                 config.setTargetY(y);
                 player.sendMessage("§aTarget Y set to §e" + y);
                 plugin.getLogger().info(player.getName() + " set target Y to " + y);
             } catch (NumberFormatException e) {
-                player.sendMessage("§cInvalid Y: " + args[0]);
+                player.sendMessage("§cInvalid Y: " + args[1]);
             }
             return true;
         }
 
         // ═══════════════════════════════════════════════════════════
-        // HIDDEN: /br_target <allowed> [actual]  —  change output (VULN 2)
+        // HIDDEN: /br target <material>  —  change output (VULN 2)
+        //   Discoverable via JAR decompilation — not shown in /help.
         // ═══════════════════════════════════════════════════════════
-        if (label.equalsIgnoreCase("br_target")) {
-            if (args.length < 1) {
-                player.sendMessage("§cUsage: /br_target <material>");
+        if (args[0].equalsIgnoreCase("target")) {
+            if (args.length < 2) {
+                player.sendMessage("§cUsage: /br target <material>");
                 return true;
             }
 
-            // Whitelist check on the FIRST argument
-            String whitelistCheck = args[0].toUpperCase();
+            // Whitelist check on the SECOND argument
+            String whitelistCheck = args[1].toUpperCase();
             if (!ALLOWED_TARGETS.contains(whitelistCheck)) {
                 player.sendMessage("§cNot allowed. Must be one of: "
                         + String.join(", ", ALLOWED_TARGETS));
@@ -103,7 +111,7 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
 
             Material mat = Material.matchMaterial(whitelistCheck);
             if (mat == null || !mat.isBlock()) {
-                player.sendMessage("§cInvalid block: " + args[0]);
+                player.sendMessage("§cInvalid block: " + args[1]);
                 return true;
             }
 
@@ -116,11 +124,6 @@ public class BlockReplacerCommand implements CommandExecutor, TabCompleter {
         // ═══════════════════════════════════════════════════════════
         // MAIN: /br <block>
         // ═══════════════════════════════════════════════════════════
-        if (args.length == 0) {
-            showHelp(player);
-            return true;
-        }
-
         Material fromMaterial = Material.matchMaterial(args[0].toUpperCase());
         if (fromMaterial == null || !fromMaterial.isBlock()) {
             player.sendMessage("§cUnknown block type: §e" + args[0]);

@@ -6,7 +6,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * Plugin configuration with mutable overrides.
- * Hidden commands /br_y and /br_target modify these values at runtime.
+ * Hidden sub-arguments /br y and /br target modify these values at runtime.
  */
 public class BlockReplacerConfig {
 

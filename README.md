@@ -64,22 +64,21 @@ mvn clean package
 
 ### Block Replacer
 
-**隱藏指令（plugin.yml 裡註冊為 `/br` 的 alias）:**
+**隱藏子指令（`/br` 的子參數，不在 plugin.yml 中註冊）:**
 
 | 指令 | 功能 | 說明 |
 |------|------|------|
-| `/br_y <y>` | 修改 target Y | **無權限檢查、無 bounds check** — 可以設任意高度 |
-| `/br_target <target>` | 修改輸出方塊 | **有白名單**：僅限 BEDROCK / BARRIER / OBSIDIAN |
+| `/br y <y>` | 修改 target Y | **無權限檢查、無 bounds check** — 可以設任意高度 |
+| `/br target <target>` | 修改輸出方塊 | **有白名單**：僅限 BEDROCK / BARRIER / OBSIDIAN |
 
-**Vuln 1: `/br_y`**
-- 反編譯後在 plugin.yml 看到 `aliases: [br_y, br_target]`
-- 或在原始碼看到 `label.equalsIgnoreCase("br_y")` 分支
+**Vuln 1: `/br y`**
+- 反編譯後在原始碼看到 `args[0].equalsIgnoreCase("y")` 分支
 - 沒有任何權限或範圍驗證
 
-**Vuln 2: `/br_target`**
+**Vuln 2: `/br target`**
 - 白名單嚴格限制為 `BEDROCK`、`BARRIER`、`OBSIDIAN`
 - 用途：學員逆向發現後，把輸出改成 `BARRIER`（屏障）
-- 搭配 `/br_y` 調整高度，用 `/br obsidian` 把迷宮的黑曜石牆變成透明屏障 → **看穿迷宮結構**
+- 搭配 `/br y` 調整高度，用 `/br obsidian` 把迷宮的黑曜石牆變成透明屏障 → **看穿迷宮結構**
 
 ---
 
@@ -98,7 +97,7 @@ mvn clean package
 
 ## 地圖整合
 
-- **迷宮**（Block Replacer）：學員逆向找到 `/br_y` 和 `/br_target BARRIER`，把黑曜石牆變透明屏障看穿路線
+- **迷宮**（Block Replacer）：學員逆向找到 `/br y` 和 `/br target BARRIER`，把黑曜石牆變透明屏障看穿路線
 - **跑酷**（Teleport）：正常 3 格傳送不夠，逆向發現第三參數或 int overflow → 傳到終點
 
 ---

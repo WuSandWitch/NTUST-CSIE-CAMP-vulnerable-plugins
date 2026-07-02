@@ -10,7 +10,7 @@ commands:
   br:
     description: Replace blocks around you with bedrock
     usage: /br <block>
-    aliases: [br_y, br_target]
+
 
 permissions:
   blockreplacer.use:

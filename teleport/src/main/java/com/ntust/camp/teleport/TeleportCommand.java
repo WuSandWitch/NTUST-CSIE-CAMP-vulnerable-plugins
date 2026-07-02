@@ -10,12 +10,14 @@ import org.bukkit.plugin.java.JavaPlugin;
 /**
  * Handles the /tp2 command.
  *
- * Usage (documented):  /tp2 <x> <z>
- * Usage (actual):      /tp2 <x> <z> [y]
+ * Usage (documented):  /tp2 <dx> <dz>
+ * Usage (actual):      /tp2 <dx> <dz> [dy]
+ *
+ * Teleports the player by a relative offset from their current position.
  *
  * VULN 1 — Y-axis bypass (discoverable via JAR decompilation):
  *   The command accepts an optional third argument.  If three
- *   arguments are given, the third one is used as the Y coordinate,
+ *   arguments are given, the third one is used as a vertical offset,
  *   bypassing the "flat plane only" restriction.
  *
  * VULN 2 — Integer overflow (discoverable via JAR decompilation):
@@ -49,35 +51,28 @@ public class TeleportCommand implements CommandExecutor {
 
         if (args.length == 0) {
             player.sendMessage("§6===== Teleport =====");
-            player.sendMessage("§e/tp2 <x> <z>");
+            player.sendMessage("§e/tp2 <dx> <dz>");
             player.sendMessage("§7  Max distance: §e" + maxDistance + "§7 blocks.");
             return true;
         }
 
         if (args.length < 2 || args.length > 3) {
-            player.sendMessage("§cUsage: /tp2 <x> <z>");
+            player.sendMessage("§cUsage: /tp2 <dx> <dz>");
             return true;
         }
 
         try {
-            double targetX = Double.parseDouble(args[0]);
-            double targetZ = Double.parseDouble(args[1]);
-            double targetY = player.getLocation().getY();
+            int dx = Integer.parseInt(args[0]);
+            int dz = Integer.parseInt(args[1]);
+            double dy = 0;
 
-            // VULN 1: hidden 3rd argument = Y coordinate
+            // VULN 1: hidden 3rd argument = Y offset
             if (args.length == 3) {
-                targetY = Double.parseDouble(args[2]);
+                dy = Double.parseDouble(args[2]);
             }
 
-            Location playerLoc = player.getLocation();
-            int playerX = playerLoc.getBlockX();
-            int playerZ = playerLoc.getBlockZ();
-
             // VULN 2: int overflow in distance check
-            int dx = (int) targetX - playerX;
-            int dz = (int) targetZ - playerZ;
             int distSq = dx * dx + dz * dz;
-
             int maxDistSq = maxDistance * maxDistance;
 
             if (distSq < 0 || distSq > maxDistSq) {
@@ -86,14 +81,16 @@ public class TeleportCommand implements CommandExecutor {
                 return true;
             }
 
+            Location playerLoc = player.getLocation();
             Location dest = new Location(player.getWorld(),
-                    targetX + 0.5, targetY, targetZ + 0.5,
+                    playerLoc.getX() + dx,
+                    playerLoc.getY() + dy,
+                    playerLoc.getZ() + dz,
                     playerLoc.getYaw(), playerLoc.getPitch());
 
             player.teleport(dest);
-            player.sendMessage("§aTeleported to §e"
-                    + (int) targetX + " " + (int) targetZ
-                    + (args.length == 3 ? " " + (int) targetY : "") + "§a!");
+            player.sendMessage("§aTeleported §e" + dx + " " + dz
+                    + (args.length == 3 ? " " + (int) dy : "") + "§a!");
 
         } catch (NumberFormatException e) {
             player.sendMessage("§cInvalid number format.");

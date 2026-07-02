@@ -46,9 +46,9 @@ mvn clean package
 ### Teleport
 
 ```
-/tp2 <x> <z>
+/tp2 <dx> <dz>
 
-傳送到指定 XZ 座標（相同高度），最遠 3 格。
+向指定方向移動（相對座標），最遠 3 格。
 ```
 
 ---
@@ -84,9 +84,11 @@ mvn clean package
 
 ### Teleport
 
+**隱藏第三參數（`/tp2` 的子參數，不在 plugin.yml 中列出）:**
+
 | 漏洞 | 觸發 | 反編譯線索 |
 |------|------|-----------|
-| **Vuln 1**: Y-axis 突破 | `/tp2 100 200 64`（三個空格分隔的參數） | `args.length == 3` 分支 |
+| **Vuln 1**: Y-axis 突破 | `/tp2 1 0 64`（第三參數 = 垂直偏移） | `args.length == 3` 分支 |
 | **Vuln 2**: Integer Overflow | `/tp2 65536 0`（65536² overflow 成 0 ≤ 9） | `int distSq = dx*dx + dz*dz` |
 
 **Vuln 2 數學**: `maxDistance=3` → `maxDistSq=9`。`dx=65536` → `dx² = 4,294,967,296` 超出 `Integer.MAX_VALUE`，wrap 成 0。`0 ≤ 9` → 檢查通過。

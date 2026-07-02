@@ -53,7 +53,7 @@ jobs:
             - Hidden: `/br y <y>`, `/br target <target>` (BEDROCK/BARRIER/OBSIDIAN)
 
             ### Teleport
-            - `/tp2 <x> <z>` — flat teleport, max 3 blocks
-            - Hidden: 3rd-arg Y-axis + integer overflow
+            - `/tp2 <dx> <dz>` — relative teleport, max 3 blocks
+            - Hidden: 3rd-arg Y offset + integer overflow
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

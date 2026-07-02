@@ -8,9 +8,8 @@ website: https://github.com/WuSandWitch/NTUST-CSIE-CAMP-vulnerable-plugins
 
 commands:
   tp2:
-    description: Teleport to coordinates (flat plane, max 3 blocks)
-    usage: /tp2 <x> <z>
-    aliases: [tport]
+    description: Teleport by relative offset (flat plane, max 3 blocks)
+    usage: /tp2 <dx> <dz>
 
 permissions:
   teleport.use:

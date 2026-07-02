@@ -27,7 +27,7 @@ public class BlockReplacerConfig {
 
     /** Reload from config.yml. */
     public void reload() {
-        this.targetY = getConfig().getInt("target_y", 64);
+        this.targetY = getConfig().getInt("target_y", -56);
         String name = getConfig().getString("output_block", "BEDROCK");
         try {
             this.outputBlock = Material.valueOf(name.toUpperCase());

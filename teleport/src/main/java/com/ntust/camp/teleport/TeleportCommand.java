@@ -21,11 +21,15 @@ import org.bukkit.plugin.java.JavaPlugin;
  *   bypassing the "flat plane only" restriction.
  *
  * VULN 2 — Integer overflow (discoverable via JAR decompilation):
- *   Distance check:
- *     int distSq = dx*dx + dz*dz;
+ *   Distance check truncates each offset to a 16-bit short first:
+ *     short sdx = (short) dx;
+ *     int   distSq = sdx*sdx + sdz*sdz;
  *   With maxDistance=3, maxDistSq=9.
- *   When dx=65536, dx² overflows 32-bit signed int → wraps to 0 ≤ 9
- *   → check passes.  Actual teleport uses double coordinates.
+ *   Any dx whose low 16 bits are small slips through, e.g.
+ *     dx=65537 → (short)65537 = 1     → distSq = 1  ≤ 9  → passes
+ *     dx=65536 → (short)65536 = 0     → distSq = 0  ≤ 9  → passes
+ *   The distance check sees the truncated value, but the actual
+ *   teleport uses the full 32-bit dx/dz → real distance is unbounded.
  */
 public class TeleportCommand implements CommandExecutor {
 
@@ -71,8 +75,12 @@ public class TeleportCommand implements CommandExecutor {
                 dy = Double.parseDouble(args[2]);
             }
 
-            // VULN 2: int overflow in distance check
-            int distSq = dx * dx + dz * dz;
+            // VULN 2: distance check truncates offsets to 16-bit short
+            // → dx=65537 wraps to 1, passing the check while the real
+            //   teleport below still moves the full 65537 blocks.
+            short sdx = (short) dx;
+            short sdz = (short) dz;
+            int distSq = sdx * sdx + sdz * sdz;
             int maxDistSq = maxDistance * maxDistance;
 
             if (distSq < 0 || distSq > maxDistSq) {

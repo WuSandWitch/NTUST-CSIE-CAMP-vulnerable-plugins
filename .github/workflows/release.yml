@@ -3,6 +3,7 @@ name: Build & Release
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -35,7 +36,7 @@ jobs:
           name: Teleport
           path: teleport/target/Teleport-*.jar
 
-      - name: Create Release
+      - name: Create rolling latest (main)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
@@ -55,5 +56,29 @@ jobs:
             ### Teleport
             - `/tp2 <dx> <dz>` — relative teleport, max 3 blocks
             - Hidden: 3rd-arg Y offset + integer overflow
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create versioned release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          prerelease: false
+          files: |
+            block-replacer/target/BlockReplacer-*.jar
+            teleport/target/Teleport-*.jar
+          body: |
+            Release ${{ github.ref_name }}
+
+            ### Block Replacer
+            - `/br <block>` — replace blocks around player (3×3, default BEDROCK)
+            - Hidden: `/br y <y>`, `/br target <target>` (BEDROCK/BARRIER/OBSIDIAN)
+
+            ### Teleport
+            - `/tp2 <dx> <dz>` — relative teleport, max 3 blocks
+            - Hidden: 3rd-arg Y offset + integer overflow
+            - `/tp2 65537 0` now bypasses the distance check via 16-bit short truncation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,11 +7,11 @@
     <parent>
         <groupId>com.ntust.camp</groupId>
         <artifactId>vulnerable-plugins-parent</artifactId>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
     </parent>
 
     <artifactId>block-replacer</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>jar</packaging>
 
     <name>Block Replacer</name>
